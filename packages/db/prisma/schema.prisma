@@ -1,0 +1,402 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Currency {
+  TOMAN
+  RIAL
+}
+
+enum AccountType {
+  CASH
+  BANK_ACCOUNT
+  CARD
+  WALLET
+  INVESTMENT
+  OTHER
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionType {
+  EXPENSE
+  INCOME
+  TRANSFER
+}
+
+enum LoanStatus {
+  ACTIVE
+  PAID
+  CANCELLED
+}
+
+enum InstallmentStatus {
+  UNPAID
+  PAID
+  OVERDUE
+}
+
+enum DebtType {
+  I_OWE
+  OWES_ME
+}
+
+enum DebtStatus {
+  OPEN
+  SETTLED
+  PARTIAL
+}
+
+enum CheckType {
+  ISSUED
+  RECEIVED
+}
+
+enum CheckStatus {
+  PENDING
+  CLEARED
+  BOUNCED
+  CANCELLED
+  TRANSFERRED
+}
+
+enum AssetType {
+  GOLD
+  CASH
+  FOREIGN_CURRENCY
+  CRYPTO
+  STOCK
+  CAR
+  PROPERTY
+  BANK_DEPOSIT
+  OTHER
+}
+
+enum RecurringFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+model User {
+  id                 String           @id @default(cuid())
+  fullName           String
+  email              String           @unique
+  passwordHash       String
+  preferredCurrency  Currency         @default(TOMAN)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  refreshTokens      RefreshToken[]
+  accounts           Account[]
+  categories         Category[]
+  transactions       Transaction[]
+  budgets            Budget[]
+  loans              Loan[]
+  installments       LoanInstallment[]
+  people             Person[]
+  debts              DebtRecord[]
+  checks             Check[]
+  assets             Asset[]
+  recurringRules     RecurringRule[]
+  goals              Goal[]
+  settings           Settings?
+}
+
+model RefreshToken {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id             String        @id @default(cuid())
+  userId         String
+  name           String
+  type           AccountType
+  initialBalance Decimal       @db.Decimal(18, 2)
+  currentBalance Decimal       @db.Decimal(18, 2)
+  currency       Currency      @default(TOMAN)
+  color          String?
+  icon           String?
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions   Transaction[] @relation("FromAccount")
+  transfersTo    Transaction[] @relation("ToAccount")
+  loans          Loan[]
+  goals          Goal[]
+  recurringRules RecurringRule[]
+
+  @@index([userId])
+}
+
+model Category {
+  id                   String        @id @default(cuid())
+  userId               String
+  name                 String
+  type                 CategoryType
+  parentId             String?
+  icon                 String?
+  color                String?
+  monthlyDefaultBudget Decimal?      @db.Decimal(18, 2)
+  isActive             Boolean       @default(true)
+  sortOrder            Int           @default(0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent               Category?     @relation("CategoryTree", fields: [parentId], references: [id])
+  children             Category[]    @relation("CategoryTree")
+  transactions         Transaction[]
+  budgets              Budget[]
+  recurringRules       RecurringRule[]
+
+  @@index([userId, type])
+}
+
+model Transaction {
+  id               String          @id @default(cuid())
+  userId           String
+  type             TransactionType
+  amount           Decimal         @db.Decimal(18, 2)
+  date             DateTime
+  accountId        String
+  toAccountId      String?
+  categoryId       String?
+  personId         String?
+  description      String?
+  notes            String?
+  tags             String[]
+  isRecurring      Boolean         @default(false)
+  recurringRuleId  String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account          Account         @relation("FromAccount", fields: [accountId], references: [id])
+  toAccount        Account?        @relation("ToAccount", fields: [toAccountId], references: [id])
+  category         Category?       @relation(fields: [categoryId], references: [id])
+  person           Person?         @relation(fields: [personId], references: [id])
+  recurringRule    RecurringRule?  @relation(fields: [recurringRuleId], references: [id])
+  installments     LoanInstallment[]
+  debts            DebtRecord[]
+
+  @@index([userId, date])
+  @@index([accountId])
+  @@index([categoryId])
+  @@index([personId])
+}
+
+model Budget {
+  id              String    @id @default(cuid())
+  userId          String
+  month           Int
+  year            Int
+  categoryId      String?
+  amount          Decimal   @db.Decimal(18, 2)
+  spentAmount     Decimal   @default(0) @db.Decimal(18, 2)
+  rolloverEnabled Boolean   @default(false)
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category        Category? @relation(fields: [categoryId], references: [id])
+
+  @@index([userId, year, month])
+}
+
+model Loan {
+  id                    String            @id @default(cuid())
+  userId                String
+  name                  String
+  principalAmount       Decimal           @db.Decimal(18, 2)
+  installmentAmount     Decimal           @db.Decimal(18, 2)
+  numberOfInstallments  Int
+  startDate             DateTime
+  monthlyDueDay         Int
+  interestRate          Decimal?          @db.Decimal(5, 2)
+  paymentAccountId      String?
+  status                LoanStatus        @default(ACTIVE)
+  notes                 String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentAccount        Account?          @relation(fields: [paymentAccountId], references: [id])
+  installments          LoanInstallment[]
+
+  @@index([userId, status])
+}
+
+model LoanInstallment {
+  id                String            @id @default(cuid())
+  userId            String
+  loanId            String
+  installmentNumber Int
+  dueDate           DateTime
+  amount            Decimal           @db.Decimal(18, 2)
+  status            InstallmentStatus @default(UNPAID)
+  paidDate          DateTime?
+  transactionId     String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan              Loan              @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  transaction       Transaction?      @relation(fields: [transactionId], references: [id])
+
+  @@index([userId, dueDate])
+  @@index([loanId])
+}
+
+model Person {
+  id           String        @id @default(cuid())
+  userId       String
+  name         String
+  phone        String?
+  note         String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  debts        DebtRecord[]
+  checks       Check[]
+
+  @@index([userId, name])
+}
+
+model DebtRecord {
+  id            String       @id @default(cuid())
+  userId        String
+  personId      String
+  type          DebtType
+  amount        Decimal      @db.Decimal(18, 2)
+  dueDate       DateTime?
+  status        DebtStatus   @default(OPEN)
+  settledAmount Decimal      @default(0) @db.Decimal(18, 2)
+  transactionId String?
+  note          String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person        Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+
+  @@index([userId, status])
+  @@index([personId])
+}
+
+model Check {
+  id          String      @id @default(cuid())
+  userId      String
+  type        CheckType
+  amount      Decimal     @db.Decimal(18, 2)
+  checkNumber String
+  bankName    String
+  personId    String?
+  dueDate     DateTime
+  status      CheckStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person      Person?     @relation(fields: [personId], references: [id])
+
+  @@index([userId, dueDate])
+  @@index([personId])
+}
+
+model Asset {
+  id              String    @id @default(cuid())
+  userId          String
+  type            AssetType
+  name            String
+  quantity        Decimal   @db.Decimal(18, 4)
+  unit            String
+  unitValue       Decimal   @db.Decimal(18, 2)
+  totalValue      Decimal   @db.Decimal(18, 2)
+  acquisitionDate DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+model RecurringRule {
+  id         String             @id @default(cuid())
+  userId     String
+  title      String
+  type       TransactionType
+  amount     Decimal            @db.Decimal(18, 2)
+  accountId  String
+  categoryId String?
+  frequency  RecurringFrequency
+  startDate  DateTime
+  endDate    DateTime?
+  nextRunAt  DateTime
+  isActive   Boolean            @default(true)
+  notes      String?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account    Account            @relation(fields: [accountId], references: [id])
+  category   Category?          @relation(fields: [categoryId], references: [id])
+  entries    Transaction[]
+
+  @@index([userId, nextRunAt])
+}
+
+model Goal {
+  id              String     @id @default(cuid())
+  userId          String
+  name            String
+  targetAmount    Decimal    @db.Decimal(18, 2)
+  currentAmount   Decimal    @default(0) @db.Decimal(18, 2)
+  targetDate      DateTime?
+  linkedAccountId String?
+  color           String?
+  icon            String?
+  status          GoalStatus @default(ACTIVE)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedAccount   Account?   @relation(fields: [linkedAccountId], references: [id])
+
+  @@index([userId, status])
+}
+
+model Settings {
+  id        String          @id @default(cuid())
+  userId    String          @unique
+  currency  Currency        @default(TOMAN)
+  theme     ThemePreference @default(SYSTEM)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
